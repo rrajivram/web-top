@@ -186,27 +186,46 @@ fn ProcessTable(
     sort: SortKey,
     #[prop(default = false)] gpu_first: bool,
 ) -> impl IntoView {
-    let selected = RwSignal::new(0usize);
+    let selected_pid: RwSignal<Option<u32>> = RwSignal::new(None);
+
+    let sorted_procs = move |s: &shared::MetricsSnapshot| {
+        let mut procs = s.processes.clone();
+        if gpu_first {
+            procs.sort_by(|a, b| {
+                b.gpu_active.cmp(&a.gpu_active)
+                    .then(b.memory_bytes.cmp(&a.memory_bytes))
+            });
+        } else {
+            sort_procs(&mut procs, sort);
+        }
+        procs
+    };
 
     // keyboard handler
     let handle_key = move |ev: web_sys::KeyboardEvent| {
-        let snap_len = snap.get().map(|s| s.processes.len()).unwrap_or(0);
+        let Some(s) = snap.get() else { return };
+        let procs = sorted_procs(&s);
+        let cur_idx = selected_pid.get()
+            .and_then(|pid| procs.iter().position(|p| p.pid == pid))
+            .unwrap_or(0);
         match ev.key().as_str() {
             "ArrowDown" => {
                 ev.prevent_default();
-                selected.update(|i| *i = (*i + 1).min(snap_len.saturating_sub(1)));
+                let new_idx = (cur_idx + 1).min(procs.len().saturating_sub(1));
+                if let Some(p) = procs.get(new_idx) {
+                    selected_pid.set(Some(p.pid));
+                }
             }
             "ArrowUp" => {
                 ev.prevent_default();
-                selected.update(|i| *i = i.saturating_sub(1));
+                let new_idx = cur_idx.saturating_sub(1);
+                if let Some(p) = procs.get(new_idx) {
+                    selected_pid.set(Some(p.pid));
+                }
             }
             "k" | "K" => {
-                if let Some(snap) = snap.get() {
-                    let mut procs = snap.processes.clone();
-                    sort_procs(&mut procs, sort);
-                    if let Some(p) = procs.get(selected.get()) {
-                        send_kill(p.pid);
-                    }
+                if let Some(pid) = selected_pid.get() {
+                    send_kill(pid);
                 }
             }
             _ => {}
@@ -254,9 +273,10 @@ fn ProcessTable(
                 } else {
                     sort_procs(&mut procs, sort);
                 }
-                let sel = selected.get();
+                let sel_pid = selected_pid.get();
                 procs.iter().enumerate().map(|(idx, p)| {
-                    let is_sel = idx == sel;
+                    let _ = idx;
+                    let is_sel = sel_pid == Some(p.pid);
                     let name = p.name.clone();
                     let pid = p.pid;
                     let gpu_on = p.gpu_active;
@@ -280,7 +300,7 @@ fn ProcessTable(
                             "grid grid-cols-[4rem_1fr_2rem_6rem_6rem_3rem] gap-2 items-center text-xs py-0.5 px-1 rounded hover:bg-gray-900"
                         };
                         view! {
-                            <div class=row_class on:click=move |_| selected.set(idx)>
+                            <div class=row_class on:click=move |_| selected_pid.set(Some(pid))>
                                 <span class="text-gray-500">{pid}</span>
                                 <span class="min-w-0 truncate text-gray-100">{name}</span>
                                 <span class="text-center text-purple-400">{if gpu_on { "G" } else { "" }}</span>
@@ -299,7 +319,7 @@ fn ProcessTable(
                             "grid grid-cols-[4rem_1fr_6rem_6rem_3rem] gap-2 items-center text-xs py-0.5 px-1 rounded hover:bg-gray-900"
                         };
                         view! {
-                            <div class=row_class on:click=move |_| selected.set(idx)>
+                            <div class=row_class on:click=move |_| selected_pid.set(Some(pid))>
                                 <span class="text-gray-500">{pid}</span>
                                 <span class="min-w-0 truncate text-gray-100">{name}</span>
                                 <span class="text-right text-green-400">{primary}</span>
@@ -382,18 +402,34 @@ fn GpuTab(snap: ReadSignal<Option<MetricsSnapshot>>) -> impl IntoView {
 }
 
 fn send_kill(pid: u32) {
+    // confirm() must be called synchronously in the click handler — mobile browsers
+    // block it once we're inside an async context / spawned microtask.
+    let window = web_sys::window().unwrap();
+    if !window
+        .confirm_with_message(&format!("Kill process {pid}?"))
+        .unwrap_or(false)
+    {
+        return;
+    }
     spawn_local(async move {
         let window = web_sys::window().unwrap();
         let base = window.location().origin().unwrap_or_default();
         let url = format!("{base}/api/process/{pid}");
-        if window
-            .confirm_with_message(&format!("Kill process {pid}?"))
-            .unwrap_or(false)
-        {
-            let mut opts = web_sys::RequestInit::new();
-            opts.method("DELETE");
-            let request = web_sys::Request::new_with_str_and_init(&url, &opts).unwrap();
-            let _ = JsFuture::from(window.fetch_with_request(&request)).await;
+        let mut opts = web_sys::RequestInit::new();
+        opts.method("DELETE");
+        let Ok(req) = web_sys::Request::new_with_str_and_init(&url, &opts) else {
+            return;
+        };
+        match JsFuture::from(window.fetch_with_request(&req)).await {
+            Ok(val) => {
+                let resp: web_sys::Response = wasm_bindgen::JsCast::dyn_into(val).unwrap();
+                if resp.status() == 403 {
+                    let _ = window.alert_with_message(&format!("Cannot kill {pid}: permission denied"));
+                }
+            }
+            Err(_) => {
+                let _ = window.alert_with_message("Network error — kill request failed");
+            }
         }
     });
 }
