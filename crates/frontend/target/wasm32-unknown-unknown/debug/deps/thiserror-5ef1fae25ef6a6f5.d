@@ -1,0 +1,14 @@
+/Users/rajiv/dev/rust/web-top/crates/frontend/target/wasm32-unknown-unknown/debug/deps/thiserror-5ef1fae25ef6a6f5.d: /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs /Users/rajiv/dev/rust/web-top/crates/frontend/target/wasm32-unknown-unknown/debug/build/thiserror-dec19c1523d8c567/out/private.rs
+
+/Users/rajiv/dev/rust/web-top/crates/frontend/target/wasm32-unknown-unknown/debug/deps/libthiserror-5ef1fae25ef6a6f5.rlib: /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs /Users/rajiv/dev/rust/web-top/crates/frontend/target/wasm32-unknown-unknown/debug/build/thiserror-dec19c1523d8c567/out/private.rs
+
+/Users/rajiv/dev/rust/web-top/crates/frontend/target/wasm32-unknown-unknown/debug/deps/libthiserror-5ef1fae25ef6a6f5.rmeta: /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs /Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs /Users/rajiv/dev/rust/web-top/crates/frontend/target/wasm32-unknown-unknown/debug/build/thiserror-dec19c1523d8c567/out/private.rs
+
+/Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/lib.rs:
+/Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/aserror.rs:
+/Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/display.rs:
+/Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/var.rs:
+/Users/rajiv/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/thiserror-2.0.18/src/private.rs:
+/Users/rajiv/dev/rust/web-top/crates/frontend/target/wasm32-unknown-unknown/debug/build/thiserror-dec19c1523d8c567/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/rajiv/dev/rust/web-top/crates/frontend/target/wasm32-unknown-unknown/debug/build/thiserror-dec19c1523d8c567/out

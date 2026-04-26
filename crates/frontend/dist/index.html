@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>web-top</title>
+    
+<script type="module">
+import init, * as bindings from '/frontend-5d26a9ae1dcc7a75.js';
+const wasm = await init({ module_or_path: '/frontend-5d26a9ae1dcc7a75_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+    <script src="https://cdn.tailwindcss.com"></script>
+<link rel="modulepreload" href="/frontend-5d26a9ae1dcc7a75.js" crossorigin="anonymous" integrity="sha384-sjqxMD92z9f++is95WdE5vVY5WUKgPJeclm8oUu763db4CUnB2hLUt6xNkFFUQfX"><link rel="preload" href="/frontend-5d26a9ae1dcc7a75_bg.wasm" crossorigin="anonymous" integrity="sha384-ClNN+JkuYv+uyw0QzPwlar+YLm1O+Ui+INs9BJ8ZoEthZPKt/SdX9LzaM4SytahZ" as="fetch" type="application/wasm"></head>
+<body class="bg-gray-950 text-gray-100 font-mono">
+</body>
+</html>
