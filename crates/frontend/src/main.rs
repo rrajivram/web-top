@@ -219,18 +219,19 @@ fn ProcessTable(
             class="outline-none"
             on:keydown=handle_key
         >
-            // Header — extra GPU column when gpu_first=true
+            // Header
             {if gpu_first {
                 view! {
-                    <div class="grid grid-cols-[4rem_1fr_2rem_6rem_6rem] gap-2 text-xs text-gray-500 uppercase tracking-wider pb-1 border-b border-gray-800 sticky top-0 bg-gray-950">
+                    <div class="grid grid-cols-[4rem_1fr_2rem_6rem_6rem_3rem] gap-2 text-xs text-gray-500 uppercase tracking-wider pb-1 border-b border-gray-800 sticky top-0 bg-gray-950">
                         <span>"PID"</span><span>"Command"</span><span></span>
                         <span class="text-right">"Mem"</span>
                         <span class="text-right">"CPU%"</span>
+                        <span></span>
                     </div>
                 }.into_any()
             } else {
                 view! {
-                    <div class="grid grid-cols-[4rem_1fr_6rem_6rem] gap-2 text-xs text-gray-500 uppercase tracking-wider pb-1 border-b border-gray-800 sticky top-0 bg-gray-950">
+                    <div class="grid grid-cols-[4rem_1fr_6rem_6rem_3rem] gap-2 text-xs text-gray-500 uppercase tracking-wider pb-1 border-b border-gray-800 sticky top-0 bg-gray-950">
                         <span>"PID"</span><span>"Command"</span>
                         <span class="text-right">
                             {match sort { SortKey::Cpu => "CPU%", SortKey::Memory => "Mem" }}
@@ -238,6 +239,7 @@ fn ProcessTable(
                         <span class="text-right">
                             {match sort { SortKey::Cpu => "Mem", SortKey::Memory => "CPU%" }}
                         </span>
+                        <span></span>
                     </div>
                 }.into_any()
             }}
@@ -245,7 +247,6 @@ fn ProcessTable(
             {move || snap.get().map(|s| {
                 let mut procs = s.processes.clone();
                 if gpu_first {
-                    // GPU-active processes first, then by memory within each group
                     procs.sort_by(|a, b| {
                         b.gpu_active.cmp(&a.gpu_active)
                             .then(b.memory_bytes.cmp(&a.memory_bytes))
@@ -272,28 +273,30 @@ fn ProcessTable(
 
                     if gpu_first {
                         let row_class = if is_sel {
-                            "grid grid-cols-[4rem_1fr_2rem_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded bg-blue-900 cursor-pointer"
+                            "grid grid-cols-[4rem_1fr_2rem_6rem_6rem_3rem] gap-2 items-center text-xs py-0.5 px-1 rounded bg-blue-900"
                         } else if gpu_on {
-                            "grid grid-cols-[4rem_1fr_2rem_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded bg-purple-950 hover:bg-purple-900 cursor-pointer"
+                            "grid grid-cols-[4rem_1fr_2rem_6rem_6rem_3rem] gap-2 items-center text-xs py-0.5 px-1 rounded bg-purple-950 hover:bg-purple-900"
                         } else {
-                            "grid grid-cols-[4rem_1fr_2rem_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded hover:bg-gray-900 cursor-pointer"
+                            "grid grid-cols-[4rem_1fr_2rem_6rem_6rem_3rem] gap-2 items-center text-xs py-0.5 px-1 rounded hover:bg-gray-900"
                         };
                         view! {
                             <div class=row_class on:click=move |_| selected.set(idx)>
                                 <span class="text-gray-500">{pid}</span>
                                 <span class="min-w-0 truncate text-gray-100">{name}</span>
-                                <span class="text-center text-purple-400">
-                                    {if gpu_on { "G" } else { "" }}
-                                </span>
+                                <span class="text-center text-purple-400">{if gpu_on { "G" } else { "" }}</span>
                                 <span class="text-right text-green-400">{mem_str}</span>
                                 <span class="text-right text-gray-400">{cpu_str}</span>
+                                <button
+                                    class="text-red-500 hover:text-red-300 font-bold text-sm text-center leading-none py-1 px-1 rounded hover:bg-red-950"
+                                    on:click=move |ev| { ev.stop_propagation(); send_kill(pid); }
+                                >"✕"</button>
                             </div>
                         }.into_any()
                     } else {
                         let row_class = if is_sel {
-                            "grid grid-cols-[4rem_1fr_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded bg-blue-900 cursor-pointer"
+                            "grid grid-cols-[4rem_1fr_6rem_6rem_3rem] gap-2 items-center text-xs py-0.5 px-1 rounded bg-blue-900"
                         } else {
-                            "grid grid-cols-[4rem_1fr_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded hover:bg-gray-900 cursor-pointer"
+                            "grid grid-cols-[4rem_1fr_6rem_6rem_3rem] gap-2 items-center text-xs py-0.5 px-1 rounded hover:bg-gray-900"
                         };
                         view! {
                             <div class=row_class on:click=move |_| selected.set(idx)>
@@ -301,13 +304,17 @@ fn ProcessTable(
                                 <span class="min-w-0 truncate text-gray-100">{name}</span>
                                 <span class="text-right text-green-400">{primary}</span>
                                 <span class="text-right text-gray-400">{secondary}</span>
+                                <button
+                                    class="text-red-500 hover:text-red-300 font-bold text-sm text-center leading-none py-1 px-1 rounded hover:bg-red-950"
+                                    on:click=move |ev| { ev.stop_propagation(); send_kill(pid); }
+                                >"✕"</button>
                             </div>
                         }.into_any()
                     }
                 }).collect_view()
             })}
             <p class="text-xs text-gray-600 mt-3">
-                "↑↓ navigate  •  k = kill selected process"
+                "tap ✕ to kill  •  keyboard: ↑↓ navigate, k = kill selected"
             </p>
         </div>
     }
@@ -379,15 +386,14 @@ fn send_kill(pid: u32) {
         let window = web_sys::window().unwrap();
         let base = window.location().origin().unwrap_or_default();
         let url = format!("{base}/api/process/{pid}");
-        if web_sys::window().unwrap().confirm_with_message(
-            &format!("Kill process {pid}?")
-        ).unwrap_or(false) {
-            let opts = web_sys::RequestInit::new();
-            opts.set_method("DELETE");
+        if window
+            .confirm_with_message(&format!("Kill process {pid}?"))
+            .unwrap_or(false)
+        {
+            let mut opts = web_sys::RequestInit::new();
+            opts.method("DELETE");
             let request = web_sys::Request::new_with_str_and_init(&url, &opts).unwrap();
-            let _ = JsFuture::from(
-                web_sys::window().unwrap().fetch_with_request(&request)
-            ).await;
+            let _ = JsFuture::from(window.fetch_with_request(&request)).await;
         }
     });
 }
