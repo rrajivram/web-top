@@ -196,8 +196,17 @@ async fn main() {
         .and_then(|p| p.parse().ok())
         .unwrap_or(8080);
 
-    let dist_path = std::env::var("FRONTEND_DIST")
-        .unwrap_or_else(|_| "crates/frontend/dist".to_string());
+    // Resolve dist dir relative to the binary so the server can be run from any cwd.
+    let dist_path = std::env::var("FRONTEND_DIST").unwrap_or_else(|_| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            // binary lives at target/{profile}/web-top → go up two levels to workspace root
+            .map(|p| p.join("../../crates/frontend/dist"))
+            .and_then(|p| p.canonicalize().ok())
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| "crates/frontend/dist".to_string())
+    });
 
     let mut sys = System::new_all();
     let users = Users::new_with_refreshed_list();
@@ -223,7 +232,7 @@ async fn main() {
     let app = Router::new()
         .route("/api/metrics", get(metrics_handler))
         .route("/api/health", get(health))
-        .route("/api/process/{pid}", delete(kill_process))
+        .route("/api/process/:pid", delete(kill_process))
         .route("/ws", get(ws_handler))
         .layer(CorsLayer::permissive())
         .with_state(shared_state)
