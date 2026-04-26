@@ -3,3 +3,7 @@
 .dolt/
 *.db
 .beads-credential-key
+
+# Rust build artifacts
+target/
+crates/frontend/target/
