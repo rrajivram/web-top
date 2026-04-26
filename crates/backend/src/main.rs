@@ -7,7 +7,7 @@ use axum::{
     routing::{delete, get},
     Json, Router,
 };
-use shared::{CpuCore, MemStats, MetricsSnapshot, ProcessInfo};
+use shared::{CpuCore, GpuCore, MemStats, MetricsSnapshot, ProcessInfo};
 use std::{sync::Arc, time::Duration};
 use sysinfo::{System, Users};
 use tokio::sync::RwLock;
@@ -100,10 +100,57 @@ fn collect_snapshot(sys: &mut System, users: &Users) -> MetricsSnapshot {
     MetricsSnapshot {
         timestamp,
         cpu_cores,
-        gpu_cores: vec![],
+        gpu_cores: collect_gpu_cores(),
         memory: collect_memory(sys),
         processes,
     }
+}
+
+fn collect_gpu_cores() -> Vec<GpuCore> {
+    macos_gpu_cores()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_gpu_cores() -> Vec<GpuCore> {
+    let output = match std::process::Command::new("ioreg")
+        .args(["-rc", "IOAccelerator"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return vec![],
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+
+    // Find the PerformanceStatistics line and extract utilization values
+    let line = match text.lines().find(|l| l.contains("PerformanceStatistics")) {
+        Some(l) => l,
+        None => return vec![],
+    };
+
+    let device = parse_ioreg_int(line, "Device Utilization %").unwrap_or(0) as f32;
+    let renderer = parse_ioreg_int(line, "Renderer Utilization %").unwrap_or(0) as f32;
+    let tiler = parse_ioreg_int(line, "Tiler Utilization %").unwrap_or(0) as f32;
+
+    vec![
+        GpuCore { name: "Device".to_string(), usage: device },
+        GpuCore { name: "Renderer".to_string(), usage: renderer },
+        GpuCore { name: "Tiler".to_string(), usage: tiler },
+        // ANE utilization requires powermetrics (root); shown as unavailable
+        GpuCore { name: "ANE".to_string(), usage: -1.0 },
+    ]
+}
+
+fn parse_ioreg_int(line: &str, key: &str) -> Option<i64> {
+    let needle = format!("\"{}\"=", key);
+    let pos = line.find(&needle)? + needle.len();
+    let rest = &line[pos..];
+    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
+    rest[..end].parse().ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_gpu_cores() -> Vec<GpuCore> {
+    vec![]
 }
 
 fn collect_memory(sys: &System) -> MemStats {
