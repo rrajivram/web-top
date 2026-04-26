@@ -211,8 +211,37 @@ fn macos_vm_info() -> (u64, u64) {
     (0, 0)
 }
 
+fn lan_ip() -> Option<String> {
+    // Find the first non-loopback IPv4 address
+    let output = std::process::Command::new("ifconfig").output().ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut in_en = false;
+    for line in text.lines() {
+        if line.starts_with("en") {
+            in_en = true;
+        } else if !line.starts_with('\t') && !line.starts_with(' ') {
+            in_en = false;
+        }
+        if in_en {
+            if let Some(rest) = line.trim().strip_prefix("inet ") {
+                let ip = rest.split_whitespace().next()?;
+                if !ip.starts_with("127.") {
+                    return Some(ip.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 #[tokio::main]
 async fn main() {
+    let port: u16 = std::env::args()
+        .skip_while(|a| a != "--port")
+        .nth(1)
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8080);
+
     let dist_path = std::env::var("FRONTEND_DIST")
         .unwrap_or_else(|_| "crates/frontend/dist".to_string());
 
@@ -243,9 +272,11 @@ async fn main() {
         .with_state(shared_state)
         .fallback_service(ServeDir::new(dist_path));
 
-    let addr: std::net::SocketAddr = "0.0.0.0:8080".parse().unwrap();
-    println!("web-top listening on http://{addr}");
-    println!("Access from phone: http://<your-mac-ip>:8080");
+    let addr: std::net::SocketAddr = format!("0.0.0.0:{port}").parse().unwrap();
+    println!("web-top listening on http://localhost:{port}");
+    if let Some(ip) = lan_ip() {
+        println!("  → from phone: http://{ip}:{port}");
+    }
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
