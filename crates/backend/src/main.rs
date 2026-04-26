@@ -7,11 +7,13 @@ use axum::{
     routing::{delete, get},
     Json, Router,
 };
-use shared::{CpuCore, GpuCore, MemStats, MetricsSnapshot, ProcessInfo};
-use std::{sync::Arc, time::Duration};
+use shared::{CpuCore, MemStats, MetricsSnapshot, ProcessInfo};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 use sysinfo::{System, Users};
 use tokio::sync::RwLock;
 use tower_http::{cors::CorsLayer, services::ServeDir};
+
+mod gpu;
 
 type SharedState = Arc<RwLock<MetricsSnapshot>>;
 
@@ -53,7 +55,7 @@ async fn kill_process(Path(pid): Path<u32>) -> StatusCode {
     }
 }
 
-fn collect_snapshot(sys: &mut System, users: &Users) -> MetricsSnapshot {
+fn collect_snapshot(sys: &mut System, users: &Users, gpu_pids: &HashSet<u32>) -> MetricsSnapshot {
     sys.refresh_all();
 
     let timestamp = std::time::SystemTime::now()
@@ -65,10 +67,7 @@ fn collect_snapshot(sys: &mut System, users: &Users) -> MetricsSnapshot {
         .cpus()
         .iter()
         .enumerate()
-        .map(|(i, cpu)| CpuCore {
-            id: i,
-            usage: cpu.cpu_usage(),
-        })
+        .map(|(i, cpu)| CpuCore { id: i, usage: cpu.cpu_usage() })
         .collect();
 
     let mut processes: Vec<ProcessInfo> = sys
@@ -80,13 +79,15 @@ fn collect_snapshot(sys: &mut System, users: &Users) -> MetricsSnapshot {
                 .and_then(|uid| users.get_user_by_id(uid))
                 .map(|u| u.name().to_string())
                 .unwrap_or_default();
+            let pid = p.pid().as_u32();
             ProcessInfo {
-                pid: p.pid().as_u32(),
+                pid,
                 name: p.name().to_string_lossy().to_string(),
                 user,
                 cpu_usage: p.cpu_usage(),
                 memory_bytes: p.memory(),
                 gpu_usage: None,
+                gpu_active: gpu_pids.contains(&pid),
             }
         })
         .collect();
@@ -100,57 +101,10 @@ fn collect_snapshot(sys: &mut System, users: &Users) -> MetricsSnapshot {
     MetricsSnapshot {
         timestamp,
         cpu_cores,
-        gpu_cores: collect_gpu_cores(),
+        gpu_cores: vec![],  // filled by caller after gpu::collect_gpu_info()
         memory: collect_memory(sys),
         processes,
     }
-}
-
-fn collect_gpu_cores() -> Vec<GpuCore> {
-    macos_gpu_cores()
-}
-
-#[cfg(target_os = "macos")]
-fn macos_gpu_cores() -> Vec<GpuCore> {
-    let output = match std::process::Command::new("ioreg")
-        .args(["-rc", "IOAccelerator"])
-        .output()
-    {
-        Ok(o) => o,
-        Err(_) => return vec![],
-    };
-    let text = String::from_utf8_lossy(&output.stdout);
-
-    // Find the PerformanceStatistics line and extract utilization values
-    let line = match text.lines().find(|l| l.contains("PerformanceStatistics")) {
-        Some(l) => l,
-        None => return vec![],
-    };
-
-    let device = parse_ioreg_int(line, "Device Utilization %").unwrap_or(0) as f32;
-    let renderer = parse_ioreg_int(line, "Renderer Utilization %").unwrap_or(0) as f32;
-    let tiler = parse_ioreg_int(line, "Tiler Utilization %").unwrap_or(0) as f32;
-
-    vec![
-        GpuCore { name: "Device".to_string(), usage: device },
-        GpuCore { name: "Renderer".to_string(), usage: renderer },
-        GpuCore { name: "Tiler".to_string(), usage: tiler },
-        // ANE utilization requires powermetrics (root); shown as unavailable
-        GpuCore { name: "ANE".to_string(), usage: -1.0 },
-    ]
-}
-
-fn parse_ioreg_int(line: &str, key: &str) -> Option<i64> {
-    let needle = format!("\"{}\"=", key);
-    let pos = line.find(&needle)? + needle.len();
-    let rest = &line[pos..];
-    let end = rest.find(|c: char| !c.is_ascii_digit()).unwrap_or(rest.len());
-    rest[..end].parse().ok()
-}
-
-#[cfg(not(target_os = "macos"))]
-fn macos_gpu_cores() -> Vec<GpuCore> {
-    vec![]
 }
 
 fn collect_memory(sys: &System) -> MemStats {
@@ -247,8 +201,9 @@ async fn main() {
 
     let mut sys = System::new_all();
     let users = Users::new_with_refreshed_list();
-
-    let initial = collect_snapshot(&mut sys, &users);
+    let (init_gpu_cores, init_gpu_pids) = gpu::collect_gpu_info();
+    let mut initial = collect_snapshot(&mut sys, &users, &init_gpu_pids);
+    initial.gpu_cores = init_gpu_cores;
     let shared_state: SharedState = Arc::new(RwLock::new(initial));
 
     let state_clone = shared_state.clone();
@@ -258,7 +213,9 @@ async fn main() {
         loop {
             interval.tick().await;
             let users = Users::new_with_refreshed_list();
-            let snapshot = collect_snapshot(&mut sys, &users);
+            let (gpu_cores, gpu_pids) = gpu::collect_gpu_info();
+            let mut snapshot = collect_snapshot(&mut sys, &users, &gpu_pids);
+            snapshot.gpu_cores = gpu_cores;
             *state_clone.write().await = snapshot;
         }
     });

@@ -137,17 +137,17 @@ fn OverviewTab(snap: ReadSignal<Option<MetricsSnapshot>>) -> impl IntoView {
                         </h2>
                         <div class="space-y-1">
                             {s.gpu_cores.iter().map(|g| {
-                                if g.usage < 0.0 {
+                                let gname = g.name.clone();
+                                let usage = g.usage;
+                                if usage < 0.0 {
                                     view! {
                                         <div class="flex items-center gap-2 text-xs">
-                                            <span class="w-20 text-gray-400">{g.name.clone()}</span>
+                                            <span class="w-20 text-gray-400">{gname}</span>
                                             <span class="text-gray-600 italic">"unavailable (needs sudo)"</span>
                                         </div>
                                     }.into_any()
                                 } else {
-                                    let label = g.name.clone();
-                                    let usage = g.usage;
-                                    view! { <UsageBar label=label usage=usage unit="%" /> }.into_any()
+                                    view! { <UsageBar label=gname usage=usage unit="%" /> }.into_any()
                                 }
                             }).collect_view()}
                         </div>
@@ -177,7 +177,6 @@ fn OverviewTab(snap: ReadSignal<Option<MetricsSnapshot>>) -> impl IntoView {
 #[derive(Clone, Copy, PartialEq)]
 enum SortKey {
     Cpu,
-    Gpu,
     Memory,
 }
 
@@ -185,6 +184,7 @@ enum SortKey {
 fn ProcessTable(
     snap: ReadSignal<Option<MetricsSnapshot>>,
     sort: SortKey,
+    #[prop(default = false)] gpu_first: bool,
 ) -> impl IntoView {
     let selected = RwSignal::new(0usize);
 
@@ -219,46 +219,90 @@ fn ProcessTable(
             class="outline-none"
             on:keydown=handle_key
         >
-            // Header
-            <div class="grid grid-cols-[4rem_1fr_6rem_6rem_6rem] gap-2 text-xs text-gray-500 uppercase tracking-wider pb-1 border-b border-gray-800 sticky top-0 bg-gray-950">
-                <span>"PID"</span>
-                <span>"Command"</span>
-                <span class="text-right">"User"</span>
-                <span class="text-right">
-                    {match sort { SortKey::Cpu => "CPU%", SortKey::Gpu => "GPU%", SortKey::Memory => "Mem" }}
-                </span>
-                <span class="text-right">"Secondary"</span>
-            </div>
+            // Header — extra GPU column when gpu_first=true
+            {if gpu_first {
+                view! {
+                    <div class="grid grid-cols-[4rem_1fr_2rem_6rem_6rem] gap-2 text-xs text-gray-500 uppercase tracking-wider pb-1 border-b border-gray-800 sticky top-0 bg-gray-950">
+                        <span>"PID"</span><span>"Command"</span><span></span>
+                        <span class="text-right">"Mem"</span>
+                        <span class="text-right">"CPU%"</span>
+                    </div>
+                }.into_any()
+            } else {
+                view! {
+                    <div class="grid grid-cols-[4rem_1fr_6rem_6rem] gap-2 text-xs text-gray-500 uppercase tracking-wider pb-1 border-b border-gray-800 sticky top-0 bg-gray-950">
+                        <span>"PID"</span><span>"Command"</span>
+                        <span class="text-right">
+                            {match sort { SortKey::Cpu => "CPU%", SortKey::Memory => "Mem" }}
+                        </span>
+                        <span class="text-right">
+                            {match sort { SortKey::Cpu => "Mem", SortKey::Memory => "CPU%" }}
+                        </span>
+                    </div>
+                }.into_any()
+            }}
             // Rows
             {move || snap.get().map(|s| {
                 let mut procs = s.processes.clone();
-                sort_procs(&mut procs, sort);
+                if gpu_first {
+                    // GPU-active processes first, then by memory within each group
+                    procs.sort_by(|a, b| {
+                        b.gpu_active.cmp(&a.gpu_active)
+                            .then(b.memory_bytes.cmp(&a.memory_bytes))
+                    });
+                } else {
+                    sort_procs(&mut procs, sort);
+                }
                 let sel = selected.get();
                 procs.iter().enumerate().map(|(idx, p)| {
                     let is_sel = idx == sel;
+                    let name = p.name.clone();
+                    let pid = p.pid;
+                    let gpu_on = p.gpu_active;
                     let primary = match sort {
                         SortKey::Cpu => format!("{:.1}%", p.cpu_usage),
-                        SortKey::Gpu => p.gpu_usage.map(|g| format!("{:.1}%", g)).unwrap_or("-".to_string()),
                         SortKey::Memory => fmt_bytes(p.memory_bytes),
                     };
                     let secondary = match sort {
                         SortKey::Cpu => fmt_bytes(p.memory_bytes),
-                        SortKey::Gpu => format!("{:.1}%", p.cpu_usage),
                         SortKey::Memory => format!("{:.1}%", p.cpu_usage),
                     };
-                    let row_class = if is_sel {
-                        "grid grid-cols-[4rem_1fr_6rem_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded bg-blue-900 cursor-pointer"
+                    let mem_str = fmt_bytes(p.memory_bytes);
+                    let cpu_str = format!("{:.1}%", p.cpu_usage);
+
+                    if gpu_first {
+                        let row_class = if is_sel {
+                            "grid grid-cols-[4rem_1fr_2rem_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded bg-blue-900 cursor-pointer"
+                        } else if gpu_on {
+                            "grid grid-cols-[4rem_1fr_2rem_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded bg-purple-950 hover:bg-purple-900 cursor-pointer"
+                        } else {
+                            "grid grid-cols-[4rem_1fr_2rem_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded hover:bg-gray-900 cursor-pointer"
+                        };
+                        view! {
+                            <div class=row_class on:click=move |_| selected.set(idx)>
+                                <span class="text-gray-500">{pid}</span>
+                                <span class="min-w-0 truncate text-gray-100">{name}</span>
+                                <span class="text-center text-purple-400">
+                                    {if gpu_on { "G" } else { "" }}
+                                </span>
+                                <span class="text-right text-green-400">{mem_str}</span>
+                                <span class="text-right text-gray-400">{cpu_str}</span>
+                            </div>
+                        }.into_any()
                     } else {
-                        "grid grid-cols-[4rem_1fr_6rem_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded hover:bg-gray-900 cursor-pointer"
-                    };
-                    view! {
-                        <div class=row_class on:click=move |_| selected.set(idx)>
-                            <span class="text-gray-500">{p.pid}</span>
-                            <span class="truncate text-gray-100">{p.name.clone()}</span>
-                            <span class="text-right text-gray-400 truncate">{p.user.clone()}</span>
-                            <span class="text-right text-green-400">{primary}</span>
-                            <span class="text-right text-gray-400">{secondary}</span>
-                        </div>
+                        let row_class = if is_sel {
+                            "grid grid-cols-[4rem_1fr_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded bg-blue-900 cursor-pointer"
+                        } else {
+                            "grid grid-cols-[4rem_1fr_6rem_6rem] gap-2 text-xs py-0.5 px-1 rounded hover:bg-gray-900 cursor-pointer"
+                        };
+                        view! {
+                            <div class=row_class on:click=move |_| selected.set(idx)>
+                                <span class="text-gray-500">{pid}</span>
+                                <span class="min-w-0 truncate text-gray-100">{name}</span>
+                                <span class="text-right text-green-400">{primary}</span>
+                                <span class="text-right text-gray-400">{secondary}</span>
+                            </div>
+                        }.into_any()
                     }
                 }).collect_view()
             })}
@@ -274,12 +318,59 @@ fn sort_procs(procs: &mut Vec<shared::ProcessInfo>, key: SortKey) {
         SortKey::Cpu => procs.sort_by(|a, b| {
             b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap_or(std::cmp::Ordering::Equal)
         }),
-        SortKey::Gpu => procs.sort_by(|a, b| {
-            let ag = a.gpu_usage.unwrap_or(0.0);
-            let bg = b.gpu_usage.unwrap_or(0.0);
-            bg.partial_cmp(&ag).unwrap_or(std::cmp::Ordering::Equal)
-        }),
         SortKey::Memory => procs.sort_by(|a, b| b.memory_bytes.cmp(&a.memory_bytes)),
+    }
+}
+
+// ── GPU tab ───────────────────────────────────────────────────────────────────
+
+#[component]
+fn GpuTab(snap: ReadSignal<Option<MetricsSnapshot>>) -> impl IntoView {
+    view! {
+        <div class="space-y-6">
+            {move || snap.get().map(|s| {
+                view! {
+                    // GPU hardware utilization
+                    <section>
+                        <h2 class="text-sm font-semibold text-gray-400 mb-2 uppercase tracking-wider">
+                            "GPU Hardware"
+                        </h2>
+                        <div class="space-y-1">
+                            {s.gpu_cores.iter().map(|g| {
+                                let gname = g.name.clone();
+                                let usage = g.usage;
+                                if usage < 0.0 {
+                                    view! {
+                                        <div class="flex items-center gap-2 text-xs">
+                                            <span class="w-20 text-gray-400">{gname}</span>
+                                            <span class="text-gray-600 italic">"unavailable (needs sudo)"</span>
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    view! { <UsageBar label=gname usage=usage unit="%" /> }.into_any()
+                                }
+                            }).collect_view()}
+                        </div>
+                    </section>
+
+                    // Process list: GPU-active first, then by memory
+                    <section>
+                        {
+                            let gpu_count = s.processes.iter().filter(|p| p.gpu_active).count();
+                            view! {
+                                <h2 class="text-sm font-semibold text-gray-400 mb-2 uppercase tracking-wider">
+                                    "Processes — " {gpu_count} " with active GPU context"
+                                    <span class="normal-case text-gray-600 ml-2 font-normal">
+                                        "(sorted GPU-first, then by memory)"
+                                    </span>
+                                </h2>
+                            }
+                        }
+                        <ProcessTable snap=snap sort=SortKey::Memory gpu_first=true />
+                    </section>
+                }
+            })}
+        </div>
     }
 }
 
@@ -350,7 +441,7 @@ fn App() -> impl IntoView {
                 {move || match tab.get() {
                     "overview" => view! { <div><OverviewTab snap=read_snap /></div> }.into_any(),
                     "cpu"      => view! { <div><ProcessTable snap=read_snap sort=SortKey::Cpu /></div> }.into_any(),
-                    "gpu"      => view! { <div><ProcessTable snap=read_snap sort=SortKey::Gpu /></div> }.into_any(),
+                    "gpu"      => view! { <div><GpuTab snap=read_snap /></div> }.into_any(),
                     "memory"   => view! { <div><ProcessTable snap=read_snap sort=SortKey::Memory /></div> }.into_any(),
                     _          => view! { <div></div> }.into_any(),
                 }}

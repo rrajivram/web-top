@@ -42,4 +42,6 @@ pub struct ProcessInfo {
     pub cpu_usage: f32,
     pub memory_bytes: u64,
     pub gpu_usage: Option<f32>,
+    /// Has an active GPU context (IOAccelerator UserClient)
+    pub gpu_active: bool,
 }
