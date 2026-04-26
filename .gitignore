@@ -7,3 +7,6 @@
 # Rust build artifacts
 target/
 crates/frontend/target/
+
+# Claude Code data directory
+!/
